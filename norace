@@ -1,0 +1,56 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Time::HiRes qw(sleep);
+use Parallel::ForkManager;
+use Fcntl qw(:seek :flock);
+
+binmode STDOUT, ':encoding(UTF-8)';
+
+my $file      = 'race-output';
+my $processes = 5;
+
+my ($numbers, $letters, $emoticons)
+    = map {$_->()} \(&get_numbers, &get_letters, &get_emoticons);
+
+print "Outputing [",
+      join(',', map {scalar @$_} $numbers, $letters, $emoticons),
+      "] (numbers, letters, emoticons)\n";
+
+unlink $file if -e $file;
+
+my $pm = Parallel::ForkManager->new($processes);
+
+foreach my $output ($numbers, $letters, $emoticons) {
+    my $pid = $pm->start and next;
+    randsleep();
+
+    open my $fh, '>>:encoding(UTF-8)', $file or die $!;
+    flock $fh, LOCK_EX or die $!;
+    seek $fh, 0, SEEK_END;
+
+    $fh->autoflush(1);
+
+    foreach my $element (@$output) {
+        print $fh $element, "\n";
+        randsleep();
+    }
+
+    close $fh or die $!;
+
+    $pm->finish;
+}
+
+$pm->wait_all_children;
+
+open my $ifh, '<:encoding(UTF-8)', $file or die $!;
+
+while(<$ifh>) {print "$.: $_";}
+
+exit(0);
+
+sub randsleep     {sleep rand 0.33                           }
+sub get_numbers   {return [map {($_ * 10) + 100} 0 .. 25    ]}
+sub get_letters   {return ['A' .. 'Z'                       ]}
+sub get_emoticons {return [map {chr} 0x1F600 .. (0x1f600+25)]}
